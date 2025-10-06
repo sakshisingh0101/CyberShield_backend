@@ -98,8 +98,8 @@ if (atms.length === 0) {
 
     console.log("ATMs being sent to Python:", atms);
 
-
-    const pythonResp = await axios.post(pythonBackendURL, atms);
+   const pythonResp = await axios.post(pythonBackendURL, atms, { timeout: 60000 });
+    // const pythonResp = await axios.post(pythonBackendURL, atms);
     console.log("data:  " , pythonResp.data)
 
     //  Respond to frontend
@@ -111,3 +111,5 @@ if (atms.length === 0) {
 });
 
 export { prediction };
+
+
