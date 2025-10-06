@@ -7,6 +7,36 @@ import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
 
+// import axios from "axios";
+
+const geocodeCache = {}; // avoid repeating API calls
+
+async function getCoordinates(branch, city, state) {
+  const key = `${branch}_${city}_${state}`;
+  if (geocodeCache[key]) return geocodeCache[key];
+
+  const query = encodeURIComponent(`${branch}, ${city}, ${state}, India`);
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}`;
+
+  try {
+    const res = await axios.get(url, { headers: { 'User-Agent': 'ATM-Risk-Heatmap' } });
+    if (res.data.length > 0) {
+      const { lat, lon } = res.data[0];
+      const coords = { lat: parseFloat(lat), lon: parseFloat(lon) };
+      geocodeCache[key] = coords;
+      return coords;
+    } else {
+      console.warn(`No geocode found for ${branch}`);
+      return { lat: 28.6 + Math.random() * 0.15, lon: 77 + Math.random() * 0.2 }; // fallback
+    }
+  } catch (err) {
+    console.error("Geocoding error:", err.message);
+    return { lat: 28.6 + Math.random() * 0.15, lon: 77 + Math.random() * 0.2 }; // fallback
+  }
+}
+
+// actual previous code : 
+
 const prediction = asyncHandler(async (req, res) => {
   try {
     const filters = req.body || {};
@@ -14,8 +44,7 @@ const prediction = asyncHandler(async (req, res) => {
 
     //  Read CSV dataset
     const transactions = [];
-   const filePath = path.join(process.cwd(), "src", "data", "Bank_Transaction_Fraud_Detection.csv");
-
+    const filePath = path.join(process.cwd(), "src", "data", "Bank_Transaction_Fraud_Detection.csv");
 
     await new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
@@ -27,39 +56,38 @@ const prediction = asyncHandler(async (req, res) => {
 
     //  Aggregate by ATM
     const atmMap = {};
-    transactions.forEach((txn) => {
+    for (const txn of transactions) {
       const branch = txn.Bank_Branch;
-      if (!branch) return;
+      if (!branch) continue;
 
-    //   Region filter (case-insensitive)
       if (
-  region &&
-  !txn.City?.toLowerCase().includes(region.toLowerCase()) &&
-  !txn.State?.toLowerCase().includes(region.toLowerCase())
-)
-  return;
+        region &&
+        !txn.City?.toLowerCase().includes(region.toLowerCase()) &&
+        !txn.State?.toLowerCase().includes(region.toLowerCase())
+      ) continue;
 
-
-      // Initialize ATM entry
       if (!atmMap[branch]) {
+        const coords = await getCoordinates(branch, txn.City, txn.State);
         atmMap[branch] = {
           Bank_Branch: branch,
           transactions: [],
-          lat: 28.6 + Math.random() * 0.15,
-          lon: 77 + Math.random() * 0.2,
+          lat: coords.lat,
+          lon: coords.lon,
         };
       }
+
+      // rest of your logic (date filter etc.)
 
       // Date filter (CSV format: dd-mm-yyyy)
       const [day, month, year] = txn.Transaction_Date.split("-");
       const txnDate = new Date(`${year}-${month}-${day}`);
-      if ((startDate && txnDate < new Date(startDate)) || (endDate && txnDate > new Date(endDate))) return;
+      if ((startDate && txnDate < new Date(startDate)) || (endDate && txnDate > new Date(endDate))) continue;
 
       atmMap[branch].transactions.push(txn);
-    });
-   console.log("Total transactions read:", transactions.length);
-console.log("ATMs after aggregation:", Object.keys(atmMap).length);
+    }
 
+    console.log("Total transactions read:", transactions.length);
+    console.log("ATMs after aggregation:", Object.keys(atmMap).length);
 
     //  Compute risk score and predicted_count
     const atms = Object.values(atmMap)
@@ -79,28 +107,22 @@ console.log("ATMs after aggregation:", Object.keys(atmMap).length);
         };
       })
       .filter((atm) => !riskThreshold || atm.risk_score >= riskThreshold);
-    
-      console.log("Number of ATMs:", atms.length);
-if (atms.length === 0) console.warn("WARNING: No ATM data to send to Python!");
 
-if (atms.length === 0) {
-  console.warn("WARNING: No ATM data meets risk threshold. Skipping Python call.");
-  return res.json(new ApiResponse(200, "No ATM data meets the risk threshold", []));
-}
+    console.log("Number of ATMs:", atms.length);
+    if (atms.length === 0) console.warn("WARNING: No ATM data to send to Python!");
+
+    if (atms.length === 0) {
+      console.warn("WARNING: No ATM data meets risk threshold. Skipping Python call.");
+      return res.json(new ApiResponse(200, "No ATM data meets the risk threshold", []));
+    }
 
     //  Call Python backend
-    // const pythonBackendURL = "http://0.0.0.0:8080/predict"; // Update if deployed
-    // const pythonBackendURL = "http://localhost:8080/predict";
-    // const pythonBackendURL = process.env.PYTHON_BACKEND_URL;
     const pythonBackendURL = `${process.env.PYTHON_BACKEND_URL}/predict`;
-
-
 
     console.log("ATMs being sent to Python:", atms);
 
-   const pythonResp = await axios.post(pythonBackendURL, atms, { timeout: 60000 });
-    // const pythonResp = await axios.post(pythonBackendURL, atms);
-    console.log("data:  " , pythonResp.data)
+    const pythonResp = await axios.post(pythonBackendURL, atms, { timeout: 60000 });
+    console.log("data:  ", pythonResp.data);
 
     //  Respond to frontend
     res.json(new ApiResponse(200, "Prediction done successfully", pythonResp.data));
@@ -111,5 +133,6 @@ if (atms.length === 0) {
 });
 
 export { prediction };
+
 
 
