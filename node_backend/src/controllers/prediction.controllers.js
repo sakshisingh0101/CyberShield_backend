@@ -89,8 +89,12 @@ if (atms.length === 0) {
 }
 
     //  Call Python backend
-    const pythonBackendURL = "http://0.0.0.0:8080/predict"; // Update if deployed
+    // const pythonBackendURL = "http://0.0.0.0:8080/predict"; // Update if deployed
     // const pythonBackendURL = "http://localhost:8080/predict";
+    // const pythonBackendURL = process.env.PYTHON_BACKEND_URL;
+    const pythonBackendURL = `${process.env.PYTHON_BACKEND_URL}/predict`;
+
+
 
     console.log("ATMs being sent to Python:", atms);
 
