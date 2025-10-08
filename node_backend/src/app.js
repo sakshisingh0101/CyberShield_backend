@@ -50,8 +50,10 @@ app.use(cookieParser())
 
 import predictionRouter from './routes/prediction.router.js';
 import regionRouter from './routes/regions.routes.js';
+import sendAlertRouter from './routes/sendAlert.router.js';
 
 
 app.use("/api/v1/cybercrime",predictionRouter)
 app.use("/api/v1/regions",regionRouter)
+app.use("/api/v1/alerts",sendAlertRouter);
 export {app}
